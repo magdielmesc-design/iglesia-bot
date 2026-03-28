@@ -43,6 +43,7 @@ def menu():
     m = ReplyKeyboardMarkup(resize_keyboard=True)
     m.add("👥 Miembros")
     m.add("🙏 Oración", "💊 Medicamentos")
+    m.add("📋 Ver datos")
     return m
 
 # ===== START =====
@@ -96,28 +97,31 @@ def manejar(m):
             estado[chat] = None
 
         # ===== VER DATOS =====
-        elif text == "ver miembros":
+        elif text == "📋 Ver datos":
+            msg = "👥 Miembros:\n"
             cursor.execute("SELECT nombre FROM miembros")
-            datos = cursor.fetchall()
-            msg = "\n".join([x[0] for x in datos]) or "Vacío"
-            bot.send_message(chat, msg)
+            miembros = cursor.fetchall()
+            msg += "\n".join([x[0] for x in miembros]) or "Vacío"
 
-        elif text == "ver oracion":
+            msg += "\n\n🙏 Oración:\n"
             cursor.execute("SELECT nombre,motivo FROM oraciones")
-            datos = cursor.fetchall()
-            msg = "\n".join([f"{n}: {m}" for n,m in datos]) or "Vacío"
-            bot.send_message(chat, msg)
+            oraciones = cursor.fetchall()
+            msg += "\n".join([f"{n}: {m}" for n,m in oraciones]) or "Vacío"
 
-        elif text == "ver medicamentos":
+            msg += "\n\n💊 Medicamentos:\n"
             cursor.execute("SELECT nombre,medicamento FROM medicamentos")
-            datos = cursor.fetchall()
-            msg = "\n".join([f"{n}: {med}" for n,med in datos]) or "Vacío"
+            meds = cursor.fetchall()
+            msg += "\n".join([f"{n}: {med}" for n,med in meds]) or "Vacío"
+
             bot.send_message(chat, msg)
 
     except Exception as e:
         bot.send_message(chat, f"Error: {e}")
         estado[chat] = None
 
+# ===== INICIO =====
 print("BOT NUEVO FUNCIONANDO")
-bot.remove_webhook(drop_pending_updates=True)
+
+bot.remove_webhook()
+
 bot.infinity_polling()
