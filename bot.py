@@ -235,3 +235,8 @@ def manejar(m):
 
 print("Bot listo...")
 bot.infinity_polling()
+print("Bot listo...")
+
+bot.remove_webhook()
+
+bot.infinity_polling(timeout=60, long_polling_timeout=60)
