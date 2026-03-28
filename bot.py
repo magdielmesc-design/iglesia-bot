@@ -92,4 +92,4 @@ def manejar(m):
         estado[chat] = None
 
 print("Bot iniciado...")
-bot.polling()
+bot.infinity_polling(timeout=60, long_polling_timeout=60)
