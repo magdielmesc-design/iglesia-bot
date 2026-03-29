@@ -1,4 +1,4 @@
-BOT IGLESIA MONTE DE DIOS - NIVEL 2 (INTERFAZ REAL)
+# BOT IGLESIA MONTE DE DIOS - NIVEL 2 (INTERFAZ REAL)
 
 import telebot from telebot.types import ReplyKeyboardMarkup import sqlite3 import os from datetime import datetime
 
