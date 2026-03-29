@@ -1,188 +1,85 @@
-# BOT IGLESIA MONTE DE DIOS - FINAL FUNCIONAL
+BOT IGLESIA MONTE DE DIOS - NIVEL 2 (INTERFAZ REAL)
 
-import telebot
-from telebot.types import ReplyKeyboardMarkup
-import sqlite3
-import os
-import random
-from datetime import datetime
+import telebot from telebot.types import ReplyKeyboardMarkup import sqlite3 import os from datetime import datetime
 
-TOKEN = os.getenv("TOKEN")
-bot = telebot.TeleBot(TOKEN)
+TOKEN = os.getenv("TOKEN") bot = telebot.TeleBot(TOKEN)
 
-# ===== DB =====
-conn = sqlite3.connect("iglesia.db", check_same_thread=False)
-cursor = conn.cursor()
+===== DB =====
 
-# ===== TABLAS =====
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS miembros (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre TEXT,
-    telefono TEXT,
-    direccion TEXT,
-    fecha_nacimiento TEXT,
-    sexo TEXT
-)
-""")
+conn = sqlite3.connect("iglesia.db", check_same_thread=False) cursor = conn.cursor()
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS celulas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre TEXT,
-    dia TEXT,
-    hora TEXT
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS casas_paz (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    anfitrion TEXT,
-    discipulador1 TEXT,
-    discipulador2 TEXT,
-    dia TEXT,
-    hora TEXT
-)
-""")
-
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS promesas (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    texto TEXT,
-    referencia TEXT,
-    fecha_ultimo_uso TEXT
-)
-""")
+cursor.execute(""" CREATE TABLE IF NOT EXISTS miembros ( id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, telefono TEXT, direccion TEXT, fecha_nacimiento TEXT, sexo TEXT ) """)
 
 conn.commit()
 
-# ===== MENU =====
-def menu():
-    m = ReplyKeyboardMarkup(resize_keyboard=True)
-    m.add("Miembros", "Células")
-    m.add("Casas de Paz", "Promesas")
-    m.add("Asistente", "Ayuda")
-    return m
+===== MENU PRINCIPAL =====
 
-# ===== START =====
-@bot.message_handler(commands=['start'])
-def start(msg):
-    bot.send_message(msg.chat.id, "Sistema activo", reply_markup=menu())
+def menu_principal(): m = ReplyKeyboardMarkup(resize_keyboard=True) m.add("👥 Miembros", "📊 Panel") m.add("🤖 Asistente", "🆘 Ayuda") return m
 
-# ===== MIEMBROS =====
-@bot.message_handler(func=lambda m: m.text == "Miembros")
-def miembros(msg):
-    bot.send_message(msg.chat.id,
-    "Formato:\nNombre,Teléfono,Dirección,Fecha(YYYY-MM-DD),Sexo")
-    bot.register_next_step_handler(msg, guardar_miembro)
+===== SUBMENU MIEMBROS =====
 
-def guardar_miembro(msg):
-    try:
-        d = msg.text.split(",")
-        cursor.execute("""
-        INSERT INTO miembros (nombre, telefono, direccion, fecha_nacimiento, sexo)
-        VALUES (?,?,?,?,?)
-        """, (d[0], d[1], d[2], d[3], d[4]))
-        conn.commit()
+def menu_miembros(): m = ReplyKeyboardMarkup(resize_keyboard=True) m.add("➕ Agregar", "📋 Ver") m.add("🔙 Volver") return m
 
-        bot.send_message(msg.chat.id, "✅ Miembro guardado", reply_markup=menu())
+===== START =====
 
-        # Bienvenida automática
-        bot.send_message(msg.chat.id,
-        f"Bienvenido {d[0]} a Iglesia Monte de Dios")
+@bot.message_handler(commands=['start']) def start(msg): bot.send_message(msg.chat.id, "Sistema activo", reply_markup=menu_principal())
 
-    except:
-        bot.send_message(msg.chat.id, "❌ Error", reply_markup=menu())
+===== NAVEGACION =====
 
-# ===== CELULAS =====
-@bot.message_handler(func=lambda m: m.text == "Células")
-def celulas(msg):
-    bot.send_message(msg.chat.id, "Formato:\nNombre,Día,Hora")
-    bot.register_next_step_handler(msg, guardar_celula)
+@bot.message_handler(func=lambda m: m.text == "👥 Miembros") def miembros_menu(msg): bot.send_message(msg.chat.id, "Módulo Miembros", reply_markup=menu_miembros())
 
-def guardar_celula(msg):
-    try:
-        d = msg.text.split(",")
-        cursor.execute("""
-        INSERT INTO celulas (nombre, dia, hora)
-        VALUES (?,?,?)
-        """, (d[0], d[1], d[2]))
-        conn.commit()
-        bot.send_message(msg.chat.id, "✅ Célula creada", reply_markup=menu())
-    except:
-        bot.send_message(msg.chat.id, "❌ Error", reply_markup=menu())
+@bot.message_handler(func=lambda m: m.text == "🔙 Volver") def volver(msg): bot.send_message(msg.chat.id, "Menú principal", reply_markup=menu_principal())
 
-# ===== CASAS DE PAZ =====
-@bot.message_handler(func=lambda m: m.text == "Casas de Paz")
-def casas(msg):
-    bot.send_message(msg.chat.id,
-    "Formato:\nAnfitrión,Discipulador1,Discipulador2,Día,Hora")
-    bot.register_next_step_handler(msg, guardar_casa)
+===== AGREGAR MIEMBRO PASO A PASO =====
 
-def guardar_casa(msg):
-    try:
-        d = msg.text.split(",")
-        cursor.execute("""
-        INSERT INTO casas_paz (anfitrion, discipulador1, discipulador2, dia, hora)
-        VALUES (?,?,?,?,?)
-        """, (d[0], d[1], d[2], d[3], d[4]))
-        conn.commit()
-        bot.send_message(msg.chat.id, "✅ Casa creada", reply_markup=menu())
-    except:
-        bot.send_message(msg.chat.id, "❌ Error", reply_markup=menu())
+@bot.message_handler(func=lambda m: m.text == "➕ Agregar") def agregar_miembro(msg): bot.send_message(msg.chat.id, "Nombre:") bot.register_next_step_handler(msg, paso_nombre)
 
-# ===== PROMESAS =====
-@bot.message_handler(func=lambda m: m.text == "Promesas")
-def promesas(msg):
-    bot.send_message(msg.chat.id,
-    "1 = Agregar\n2 = Ver")
-    bot.register_next_step_handler(msg, menu_promesas)
+def paso_nombre(msg): nombre = msg.text bot.send_message(msg.chat.id, "Teléfono:") bot.register_next_step_handler(msg, paso_telefono, nombre)
 
-def menu_promesas(msg):
-    if msg.text == "1":
-        bot.send_message(msg.chat.id, "Texto\nReferencia")
-        bot.register_next_step_handler(msg, guardar_promesa)
-    else:
-        cursor.execute("SELECT texto, referencia FROM promesas ORDER BY RANDOM() LIMIT 1")
-        p = cursor.fetchone()
-        if p:
-            bot.send_message(msg.chat.id,
-            f"📖 Promesa del día\n\n{p[0]}\n— {p[1]}")
-        else:
-            bot.send_message(msg.chat.id, "No hay promesas")
+def paso_telefono(msg, nombre): telefono = msg.text bot.send_message(msg.chat.id, "Dirección:") bot.register_next_step_handler(msg, paso_direccion, nombre, telefono)
 
-def guardar_promesa(msg):
-    try:
-        l = msg.text.split("\n")
-        cursor.execute("""
-        INSERT INTO promesas (texto, referencia, fecha_ultimo_uso)
-        VALUES (?,?,?)
-        """, (l[0], l[1], datetime.now()))
-        conn.commit()
-        bot.send_message(msg.chat.id, "✅ Guardada", reply_markup=menu())
-    except:
-        bot.send_message(msg.chat.id, "❌ Error", reply_markup=menu())
+def paso_direccion(msg, nombre, telefono): direccion = msg.text bot.send_message(msg.chat.id, "Fecha nacimiento (YYYY-MM-DD):") bot.register_next_step_handler(msg, paso_fecha, nombre, telefono, direccion)
 
-# ===== ASISTENTE =====
-@bot.message_handler(func=lambda m: m.text == "Asistente")
-def asistente(msg):
-    cursor.execute("SELECT COUNT(*) FROM miembros")
-    m = cursor.fetchone()[0]
+def paso_fecha(msg, nombre, telefono, direccion): fecha = msg.text bot.send_message(msg.chat.id, "Sexo (M/F):") bot.register_next_step_handler(msg, paso_sexo, nombre, telefono, direccion, fecha)
 
-    cursor.execute("SELECT COUNT(*) FROM celulas")
-    c = cursor.fetchone()[0]
+def paso_sexo(msg, nombre, telefono, direccion, fecha): sexo = msg.text
 
-    bot.send_message(msg.chat.id,
-    f"📊 Estado\nMiembros: {m}\nCélulas: {c}",
-    reply_markup=menu())
+cursor.execute("""
+INSERT INTO miembros (nombre, telefono, direccion, fecha_nacimiento, sexo)
+VALUES (?,?,?,?,?)
+""", (nombre, telefono, direccion, fecha, sexo))
+conn.commit()
 
-# ===== AYUDA =====
-@bot.message_handler(func=lambda m: m.text == "Ayuda")
-def ayuda(msg):
-    bot.send_message(msg.chat.id,
-    "Usa el menú.\nMiembros: agregar\nCélulas: crear\nPromesas: guardar/ver",
-    reply_markup=menu())
+bot.send_message(msg.chat.id, f"✅ Guardado: {nombre}", reply_markup=menu_principal())
 
-# ===== RUN =====
+===== VER MIEMBROS =====
+
+@bot.message_handler(func=lambda m: m.text == "📋 Ver") def ver_miembros(msg): cursor.execute("SELECT nombre, telefono FROM miembros") data = cursor.fetchall()
+
+if not data:
+    bot.send_message(msg.chat.id, "No hay miembros")
+    return
+
+texto = "👥 Miembros:\n\n"
+for m in data:
+    texto += f"- {m[0]} ({m[1]})\n"
+
+bot.send_message(msg.chat.id, texto)
+
+===== PANEL =====
+
+@bot.message_handler(func=lambda m: m.text == "📊 Panel") def panel(msg): cursor.execute("SELECT COUNT(*) FROM miembros") total = cursor.fetchone()[0]
+
+bot.send_message(msg.chat.id, f"📊 Total miembros: {total}")
+
+===== ASISTENTE =====
+
+@bot.message_handler(func=lambda m: m.text == "🤖 Asistente") def asistente(msg): bot.send_message(msg.chat.id, "Puedes preguntar:\n- estado\n- miembros")
+
+===== AYUDA =====
+
+@bot.message_handler(func=lambda m: m.text == "🆘 Ayuda") def ayuda(msg): bot.send_message(msg.chat.id, "Usa botones.\nAgregar miembro paso a paso.")
+
+===== RUN =====
+
 bot.polling()
