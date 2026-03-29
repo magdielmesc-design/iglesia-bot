@@ -1,89 +1,188 @@
-BOT IGLESIA MONTE DE DIOS - VERSION FINAL
+# BOT IGLESIA MONTE DE DIOS - FINAL FUNCIONAL
 
-Listo para Railway + Telegram
+import telebot
+from telebot.types import ReplyKeyboardMarkup
+import sqlite3
+import os
+import random
+from datetime import datetime
 
-import telebot from telebot.types import ReplyKeyboardMarkup import sqlite3 import os import random from datetime import datetime
+TOKEN = os.getenv("TOKEN")
+bot = telebot.TeleBot(TOKEN)
 
-TOKEN = os.getenv("TOKEN") bot = telebot.TeleBot(TOKEN)
+# ===== DB =====
+conn = sqlite3.connect("iglesia.db", check_same_thread=False)
+cursor = conn.cursor()
 
-================== DB ==================
+# ===== TABLAS =====
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS miembros (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT,
+    telefono TEXT,
+    direccion TEXT,
+    fecha_nacimiento TEXT,
+    sexo TEXT
+)
+""")
 
-conn = sqlite3.connect("iglesia.db", check_same_thread=False) cursor = conn.cursor()
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS celulas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    nombre TEXT,
+    dia TEXT,
+    hora TEXT
+)
+""")
 
-TABLAS PRINCIPALES
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS casas_paz (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    anfitrion TEXT,
+    discipulador1 TEXT,
+    discipulador2 TEXT,
+    dia TEXT,
+    hora TEXT
+)
+""")
 
-cursor.execute(""" CREATE TABLE IF NOT EXISTS miembros ( id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, telefono TEXT, direccion TEXT, fecha_nacimiento TEXT, sexo TEXT ) """)
-
-cursor.execute(""" CREATE TABLE IF NOT EXISTS departamentos ( id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, tipo TEXT ) """)
-
-cursor.execute(""" CREATE TABLE IF NOT EXISTS miembro_departamento ( miembro_id INTEGER, departamento_id INTEGER ) """)
-
-cursor.execute(""" CREATE TABLE IF NOT EXISTS roles ( id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, nivel INTEGER ) """)
-
-cursor.execute(""" CREATE TABLE IF NOT EXISTS miembro_rol ( miembro_id INTEGER, rol_id INTEGER, departamento_id INTEGER, celula_id INTEGER ) """)
-
-cursor.execute(""" CREATE TABLE IF NOT EXISTS celulas ( id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, lider_id INTEGER, ayudante_id INTEGER, dia TEXT, hora TEXT ) """)
-
-cursor.execute(""" CREATE TABLE IF NOT EXISTS casas_paz ( id INTEGER PRIMARY KEY AUTOINCREMENT, anfitrion TEXT, discipulador1 INTEGER, discipulador2 INTEGER, dia TEXT, hora TEXT ) """)
-
-cursor.execute(""" CREATE TABLE IF NOT EXISTS promesas ( id INTEGER PRIMARY KEY AUTOINCREMENT, texto TEXT, referencia TEXT, fecha_ultimo_uso TEXT ) """)
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS promesas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    texto TEXT,
+    referencia TEXT,
+    fecha_ultimo_uso TEXT
+)
+""")
 
 conn.commit()
 
-================== MENU ==================
+# ===== MENU =====
+def menu():
+    m = ReplyKeyboardMarkup(resize_keyboard=True)
+    m.add("Miembros", "Células")
+    m.add("Casas de Paz", "Promesas")
+    m.add("Asistente", "Ayuda")
+    return m
 
-def menu(): markup = ReplyKeyboardMarkup(resize_keyboard=True) markup.add("Miembros", "Departamentos") markup.add("Células", "Casas de Paz") markup.add("Promesas", "Asistente") markup.add("Ayuda") return markup
+# ===== START =====
+@bot.message_handler(commands=['start'])
+def start(msg):
+    bot.send_message(msg.chat.id, "Sistema activo", reply_markup=menu())
 
-================== START ==================
+# ===== MIEMBROS =====
+@bot.message_handler(func=lambda m: m.text == "Miembros")
+def miembros(msg):
+    bot.send_message(msg.chat.id,
+    "Formato:\nNombre,Teléfono,Dirección,Fecha(YYYY-MM-DD),Sexo")
+    bot.register_next_step_handler(msg, guardar_miembro)
 
-@bot.message_handler(commands=['start']) def start(msg): bot.send_message(msg.chat.id, "Sistema Iglesia Monte de Dios activo", reply_markup=menu())
+def guardar_miembro(msg):
+    try:
+        d = msg.text.split(",")
+        cursor.execute("""
+        INSERT INTO miembros (nombre, telefono, direccion, fecha_nacimiento, sexo)
+        VALUES (?,?,?,?,?)
+        """, (d[0], d[1], d[2], d[3], d[4]))
+        conn.commit()
 
-================== MIEMBROS ==================
+        bot.send_message(msg.chat.id, "✅ Miembro guardado", reply_markup=menu())
 
-@bot.message_handler(func=lambda m: m.text == "Miembros") def miembros(msg): bot.send_message(msg.chat.id, "Escribe:\nNombre, Teléfono, Dirección, FechaNacimiento(YYYY-MM-DD), Sexo") bot.register_next_step_handler(msg, guardar_miembro)
+        # Bienvenida automática
+        bot.send_message(msg.chat.id,
+        f"Bienvenido {d[0]} a Iglesia Monte de Dios")
 
-def guardar_miembro(msg): try: datos = msg.text.split(",") cursor.execute("INSERT INTO miembros (nombre, telefono, direccion, fecha_nacimiento, sexo) VALUES (?,?,?,?,?)", (datos[0], datos[1], datos[2], datos[3], datos[4])) conn.commit() bot.send_message(msg.chat.id, "Miembro guardado") except: bot.send_message(msg.chat.id, "Error al guardar")
+    except:
+        bot.send_message(msg.chat.id, "❌ Error", reply_markup=menu())
 
-================== DEPARTAMENTOS ==================
+# ===== CELULAS =====
+@bot.message_handler(func=lambda m: m.text == "Células")
+def celulas(msg):
+    bot.send_message(msg.chat.id, "Formato:\nNombre,Día,Hora")
+    bot.register_next_step_handler(msg, guardar_celula)
 
-@bot.message_handler(func=lambda m: m.text == "Departamentos") def deptos(msg): bot.send_message(msg.chat.id, "Escribe nombre del departamento") bot.register_next_step_handler(msg, guardar_depto)
+def guardar_celula(msg):
+    try:
+        d = msg.text.split(",")
+        cursor.execute("""
+        INSERT INTO celulas (nombre, dia, hora)
+        VALUES (?,?,?)
+        """, (d[0], d[1], d[2]))
+        conn.commit()
+        bot.send_message(msg.chat.id, "✅ Célula creada", reply_markup=menu())
+    except:
+        bot.send_message(msg.chat.id, "❌ Error", reply_markup=menu())
 
-def guardar_depto(msg): cursor.execute("INSERT INTO departamentos (nombre, tipo) VALUES (?,?)", (msg.text, "general")) conn.commit() bot.send_message(msg.chat.id, "Departamento creado")
+# ===== CASAS DE PAZ =====
+@bot.message_handler(func=lambda m: m.text == "Casas de Paz")
+def casas(msg):
+    bot.send_message(msg.chat.id,
+    "Formato:\nAnfitrión,Discipulador1,Discipulador2,Día,Hora")
+    bot.register_next_step_handler(msg, guardar_casa)
 
-================== CELULAS ==================
+def guardar_casa(msg):
+    try:
+        d = msg.text.split(",")
+        cursor.execute("""
+        INSERT INTO casas_paz (anfitrion, discipulador1, discipulador2, dia, hora)
+        VALUES (?,?,?,?,?)
+        """, (d[0], d[1], d[2], d[3], d[4]))
+        conn.commit()
+        bot.send_message(msg.chat.id, "✅ Casa creada", reply_markup=menu())
+    except:
+        bot.send_message(msg.chat.id, "❌ Error", reply_markup=menu())
 
-@bot.message_handler(func=lambda m: m.text == "Células") def celulas(msg): bot.send_message(msg.chat.id, "Nombre, Dia, Hora") bot.register_next_step_handler(msg, guardar_celula)
+# ===== PROMESAS =====
+@bot.message_handler(func=lambda m: m.text == "Promesas")
+def promesas(msg):
+    bot.send_message(msg.chat.id,
+    "1 = Agregar\n2 = Ver")
+    bot.register_next_step_handler(msg, menu_promesas)
 
-def guardar_celula(msg): d = msg.text.split(",") cursor.execute("INSERT INTO celulas (nombre, dia, hora) VALUES (?,?,?)", (d[0], d[1], d[2])) conn.commit() bot.send_message(msg.chat.id, "Célula creada")
+def menu_promesas(msg):
+    if msg.text == "1":
+        bot.send_message(msg.chat.id, "Texto\nReferencia")
+        bot.register_next_step_handler(msg, guardar_promesa)
+    else:
+        cursor.execute("SELECT texto, referencia FROM promesas ORDER BY RANDOM() LIMIT 1")
+        p = cursor.fetchone()
+        if p:
+            bot.send_message(msg.chat.id,
+            f"📖 Promesa del día\n\n{p[0]}\n— {p[1]}")
+        else:
+            bot.send_message(msg.chat.id, "No hay promesas")
 
-================== CASAS DE PAZ ==================
+def guardar_promesa(msg):
+    try:
+        l = msg.text.split("\n")
+        cursor.execute("""
+        INSERT INTO promesas (texto, referencia, fecha_ultimo_uso)
+        VALUES (?,?,?)
+        """, (l[0], l[1], datetime.now()))
+        conn.commit()
+        bot.send_message(msg.chat.id, "✅ Guardada", reply_markup=menu())
+    except:
+        bot.send_message(msg.chat.id, "❌ Error", reply_markup=menu())
 
-@bot.message_handler(func=lambda m: m.text == "Casas de Paz") def casas(msg): bot.send_message(msg.chat.id, "Anfitrión, Discipulador1ID, Discipulador2ID, Dia, Hora") bot.register_next_step_handler(msg, guardar_casa)
+# ===== ASISTENTE =====
+@bot.message_handler(func=lambda m: m.text == "Asistente")
+def asistente(msg):
+    cursor.execute("SELECT COUNT(*) FROM miembros")
+    m = cursor.fetchone()[0]
 
-def guardar_casa(msg): d = msg.text.split(",") cursor.execute("INSERT INTO casas_paz (anfitrion, discipulador1, discipulador2, dia, hora) VALUES (?,?,?,?,?)", (d[0], d[1], d[2], d[3], d[4])) conn.commit() bot.send_message(msg.chat.id, "Casa creada")
+    cursor.execute("SELECT COUNT(*) FROM celulas")
+    c = cursor.fetchone()[0]
 
-================== PROMESAS ==================
+    bot.send_message(msg.chat.id,
+    f"📊 Estado\nMiembros: {m}\nCélulas: {c}",
+    reply_markup=menu())
 
-@bot.message_handler(func=lambda m: m.text == "Promesas") def promesas(msg): bot.send_message(msg.chat.id, "1. Agregar\n2. Ver aleatoria") bot.register_next_step_handler(msg, menu_promesas)
+# ===== AYUDA =====
+@bot.message_handler(func=lambda m: m.text == "Ayuda")
+def ayuda(msg):
+    bot.send_message(msg.chat.id,
+    "Usa el menú.\nMiembros: agregar\nCélulas: crear\nPromesas: guardar/ver",
+    reply_markup=menu())
 
-def menu_promesas(msg): if msg.text == "1": bot.send_message(msg.chat.id, "Texto\nReferencia") bot.register_next_step_handler(msg, guardar_promesa) else: cursor.execute("SELECT texto, referencia FROM promesas ORDER BY RANDOM() LIMIT 1") p = cursor.fetchone() if p: bot.send_message(msg.chat.id, f"📖 Promesa\n\n{p[0]}\n— {p[1]}") else: bot.send_message(msg.chat.id, "No hay promesas")
-
-def guardar_promesa(msg): lineas = msg.text.split("\n") cursor.execute("INSERT INTO promesas (texto, referencia, fecha_ultimo_uso) VALUES (?,?,?)", (lineas[0], lineas[1], datetime.now())) conn.commit() bot.send_message(msg.chat.id, "Promesa guardada")
-
-================== ASISTENTE ==================
-
-@bot.message_handler(func=lambda m: m.text == "Asistente") def asistente(msg): cursor.execute("SELECT COUNT(*) FROM miembros") miembros = cursor.fetchone()[0]
-
-cursor.execute("SELECT COUNT(*) FROM celulas")
-celulas = cursor.fetchone()[0]
-
-bot.send_message(msg.chat.id,
-                 f"Estado:\nMiembros: {miembros}\nCélulas: {celulas}")
-
-================== AYUDA ==================
-
-@bot.message_handler(func=lambda m: m.text == "Ayuda") def ayuda(msg): bot.send_message(msg.chat.id, "Usa el menú.\nMiembros: agregar personas\nCélulas: crear grupos\nPromesas: versículos")
-
-================== RUN ==================
-
+# ===== RUN =====
 bot.polling()
