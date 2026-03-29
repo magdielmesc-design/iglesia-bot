@@ -1,5 +1,5 @@
 import telebot
-from telebot.types import ReplyKeyboardMarkup, KeyboardButton
+from telebot.types import ReplyKeyboardMarkup
 import sqlite3
 import os
 from datetime import datetime
@@ -12,7 +12,15 @@ bot = telebot.TeleBot(TOKEN)
 conn = sqlite3.connect("iglesia.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# TABLAS
+# ===== TABLAS =====
+cursor.execute("""
+CREATE TABLE IF NOT EXISTS usuarios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    chat_id TEXT UNIQUE,
+    rol TEXT
+)
+""")
+
 cursor.execute("""
 CREATE TABLE IF NOT EXISTS miembros (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -31,16 +39,52 @@ CREATE TABLE IF NOT EXISTS oraciones (
 
 conn.commit()
 
-# ===== TECLADO PRINCIPAL =====
-def menu_principal():
+# ===== FUNCIONES =====
+def obtener_rol(chat_id):
+    cursor.execute("SELECT rol FROM usuarios WHERE chat_id=?", (chat_id,))
+    data = cursor.fetchone()
+    return data[0] if data else None
+
+def registrar_usuario(chat_id):
+    cursor.execute("SELECT COUNT(*) FROM usuarios")
+    total = cursor.fetchone()[0]
+
+    if total == 0:
+        rol = "Pastor"
+    else:
+        rol = "Miembro"
+
+    cursor.execute("INSERT OR IGNORE INTO usuarios (chat_id, rol) VALUES (?, ?)", (chat_id, rol))
+    conn.commit()
+
+    return rol
+
+# ===== MENÚ =====
+def menu_principal(rol):
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("👥 Miembros", "🙏 Oración")
+
+    if rol == "Pastor":
+        markup.add("👥 Miembros", "🙏 Oración", "🎁 Ayudas", "⚙️ Admin")
+    elif rol == "Líder":
+        markup.add("👥 Miembros", "🙏 Oración")
+    else:
+        markup.add("🙏 Oración")
+
     return markup
 
-# ===== INICIO =====
+# ===== START =====
 @bot.message_handler(commands=['start'])
 def start(msg):
-    bot.send_message(msg.chat.id, "Sistema Iglesia Monte de Dios activo", reply_markup=menu_principal())
+    chat_id = str(msg.chat.id)
+
+    registrar_usuario(chat_id)
+    rol = obtener_rol(chat_id)
+
+    bot.send_message(
+        msg.chat.id,
+        f"Sistema activo\nRol: {rol}",
+        reply_markup=menu_principal(rol)
+    )
 
 # ===== MIEMBROS =====
 @bot.message_handler(func=lambda m: m.text == "👥 Miembros")
@@ -57,7 +101,7 @@ def agregar_miembro(msg):
 def guardar_miembro(msg):
     cursor.execute("INSERT INTO miembros (nombre) VALUES (?)", (msg.text,))
     conn.commit()
-    bot.send_message(msg.chat.id, "Miembro guardado", reply_markup=menu_principal())
+    bot.send_message(msg.chat.id, "Miembro guardado")
 
 @bot.message_handler(func=lambda m: m.text == "📋 Ver")
 def ver_miembros(msg):
@@ -96,7 +140,7 @@ def guardar_oracion(msg):
     )
     conn.commit()
 
-    bot.send_message(msg.chat.id, "Motivo guardado", reply_markup=menu_principal())
+    bot.send_message(msg.chat.id, "Motivo guardado")
 
 @bot.message_handler(func=lambda m: m.text == "📖 Ver")
 def ver_oraciones(msg):
@@ -116,8 +160,10 @@ def ver_oraciones(msg):
 # ===== VOLVER =====
 @bot.message_handler(func=lambda m: m.text == "⬅️ Volver")
 def volver(msg):
-    bot.send_message(msg.chat.id, "Menú principal", reply_markup=menu_principal())
+    chat_id = str(msg.chat.id)
+    rol = obtener_rol(chat_id)
+    bot.send_message(msg.chat.id, "Menú principal", reply_markup=menu_principal(rol))
 
 # ===== RUN =====
-print("Bot corriendo...")
+print("Bot corriendo con roles...")
 bot.infinity_polling()
