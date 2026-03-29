@@ -11,16 +11,31 @@ bot = telebot.TeleBot(TOKEN)
 conn = sqlite3.connect("iglesia.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# ===== TABLAS =====
 cursor.executescript("""
-CREATE TABLE IF NOT EXISTS usuarios (id INTEGER PRIMARY KEY, nombre TEXT, rol TEXT);
-CREATE TABLE IF NOT EXISTS miembros (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, estado TEXT);
-CREATE TABLE IF NOT EXISTS oraciones (id INTEGER PRIMARY KEY AUTOINCREMENT, texto TEXT, user_id INTEGER);
-CREATE TABLE IF NOT EXISTS ayudas (id INTEGER PRIMARY KEY AUTOINCREMENT, descripcion TEXT, aprobado INTEGER);
-CREATE TABLE IF NOT EXISTS medicamentos (id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, stock INTEGER);
-CREATE TABLE IF NOT EXISTS casas (id INTEGER PRIMARY KEY AUTOINCREMENT, anfitrion TEXT, direccion TEXT);
-CREATE TABLE IF NOT EXISTS servicios (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, mensaje TEXT, predicador TEXT);
-CREATE TABLE IF NOT EXISTS agenda (id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, evento TEXT);
+CREATE TABLE IF NOT EXISTS usuarios (
+    id INTEGER PRIMARY KEY, nombre TEXT, rol TEXT
+);
+CREATE TABLE IF NOT EXISTS miembros (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, ministerio TEXT, estado TEXT
+);
+CREATE TABLE IF NOT EXISTS oraciones (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, texto TEXT, user_id INTEGER
+);
+CREATE TABLE IF NOT EXISTS ayudas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, descripcion TEXT, aprobado INTEGER, asignado INTEGER
+);
+CREATE TABLE IF NOT EXISTS medicamentos (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, nombre TEXT, stock INTEGER
+);
+CREATE TABLE IF NOT EXISTS casas (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, anfitrion TEXT, direccion TEXT
+);
+CREATE TABLE IF NOT EXISTS servicios (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, predicador TEXT, mensaje TEXT, coro TEXT, ofrendas TEXT
+);
+CREATE TABLE IF NOT EXISTS agenda (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, fecha TEXT, evento TEXT
+);
 """)
 conn.commit()
 
@@ -28,12 +43,15 @@ conn.commit()
 user_states = {}
 
 # ===== ROLES =====
-def get_rol(user_id):
-    r = cursor.execute("SELECT rol FROM usuarios WHERE id=?", (user_id,)).fetchone()
+def get_rol(uid):
+    r = cursor.execute("SELECT rol FROM usuarios WHERE id=?", (uid,)).fetchone()
     return r[0] if r else None
 
-def es_pastor(user_id):
-    return get_rol(user_id) == "pastor"
+def es_pastor(uid):
+    return get_rol(uid) == "pastor"
+
+def es_lider(uid):
+    return get_rol(uid) == "lider"
 
 # ===== MENÚ PRINCIPAL =====
 def menu(chat_id):
@@ -42,21 +60,19 @@ def menu(chat_id):
     m.add("🎁 Ayudas", "💊 Medicamentos")
     m.add("🏠 Casas de Paz", "⛪ Servicios")
     m.add("📅 Agenda", "⚙️ Administración")
-    bot.send_message(chat_id, "Sistema Iglesia FINAL", reply_markup=m)
+    bot.send_message(chat_id, "Sistema Iglesia Monte de Dios", reply_markup=m)
 
-# ===== MENÚ MÓDULO =====
 def menu_mod(chat_id, nombre):
     m = ReplyKeyboardMarkup(resize_keyboard=True)
     m.add("➕ Agregar", "📄 Ver")
-    m.add("🔙 Volver", "🏠 Inicio")
+    m.add("🔙 Volver")
     bot.send_message(chat_id, nombre, reply_markup=m)
 
-# ===== START AUTO PASTOR =====
+# ===== START =====
 @bot.message_handler(commands=["start"])
 def start(msg):
     uid = msg.chat.id
     nombre = msg.from_user.first_name
-
     pastor = cursor.execute("SELECT * FROM usuarios WHERE rol='pastor'").fetchone()
     user = cursor.execute("SELECT * FROM usuarios WHERE id=?", (uid,)).fetchone()
 
@@ -65,11 +81,13 @@ def start(msg):
         cursor.execute("INSERT INTO usuarios VALUES (?,?,?)", (uid, nombre, rol))
         conn.commit()
         if rol == "pastor":
-            bot.send_message(uid, "Eres Pastor (primer acceso)")
+            bot.send_message(uid, "Bienvenido Pastor (primer acceso)")
+        else:
+            bot.send_message(uid, f"Bienvenido {nombre}, tu rol es Miembro")
 
     menu(uid)
 
-# ===== HANDLER =====
+# ===== HANDLER PRINCIPAL =====
 @bot.message_handler(func=lambda m: True)
 def manejar(m):
     uid = m.chat.id
@@ -77,139 +95,196 @@ def manejar(m):
     estado = user_states.get(uid)
 
     # ===== NAVEGACIÓN =====
-    if txt in ["🔙 Volver", "🏠 Inicio"]:
+    if txt == "🔙 Volver":
+        user_states[uid] = None
         menu(uid)
+        return
 
-    elif txt == "📋 Miembros":
+    # ===== MENÚS =====
+    if txt == "📋 Miembros":
+        user_states[uid] = "menu_miembros"
         menu_mod(uid, "Miembros")
-
-    elif txt == "🙏 Oración":
+        return
+    if txt == "🙏 Oración":
+        user_states[uid] = "menu_oracion"
         menu_mod(uid, "Oración")
-
-    elif txt == "🎁 Ayudas":
+        return
+    if txt == "🎁 Ayudas":
+        user_states[uid] = "menu_ayudas"
         menu_mod(uid, "Ayudas")
-
-    elif txt == "💊 Medicamentos":
+        return
+    if txt == "💊 Medicamentos":
+        user_states[uid] = "menu_medicamentos"
         menu_mod(uid, "Medicamentos")
-
-    elif txt == "🏠 Casas de Paz":
+        return
+    if txt == "🏠 Casas de Paz":
+        user_states[uid] = "menu_casas"
         menu_mod(uid, "Casas de Paz")
-
-    elif txt == "⛪ Servicios":
+        return
+    if txt == "⛪ Servicios":
+        user_states[uid] = "menu_servicios"
         menu_mod(uid, "Servicios")
-
-    elif txt == "📅 Agenda":
+        return
+    if txt == "📅 Agenda":
+        user_states[uid] = "menu_agenda"
         menu_mod(uid, "Agenda")
-
-    elif txt == "⚙️ Administración":
+        return
+    if txt == "⚙️ Administración":
         if es_pastor(uid):
             data = cursor.execute("SELECT id,nombre,rol FROM usuarios").fetchall()
-            bot.send_message(uid, "\n".join([str(d) for d in data]))
+            bot.send_message(uid, "\n".join([str(d) for d in data]) or "Vacío")
         else:
-            bot.send_message(uid, "Acceso denegado")
+            bot.send_message(uid, "Sin acceso")
+        return
 
     # ===== AGREGAR =====
-    elif txt == "➕ Agregar":
-        ref = m.reply_to_message.text
-
-        if "Miembros" in ref:
+    if txt == "➕ Agregar":
+        if estado == "menu_miembros":
             user_states[uid] = "miembro"
-            bot.send_message(uid, "Nombre:")
-
-        elif "Oración" in ref:
+            bot.send_message(uid, "Nombre (si quieres ministerio: Nombre - Ministerio):")
+            return
+        elif estado == "menu_oracion":
             user_states[uid] = "oracion"
-            bot.send_message(uid, "Motivo:")
-
-        elif "Ayudas" in ref:
-            if es_pastor(uid):
-                user_states[uid] = "ayuda"
-                bot.send_message(uid, "Descripción:")
-            else:
+            bot.send_message(uid, "Motivo de oración:")
+            return
+        elif estado == "menu_ayudas":
+            if not es_pastor(uid):
                 bot.send_message(uid, "Solo Pastor")
-
-        elif "Medicamentos" in ref:
-            if es_pastor(uid):
-                user_states[uid] = "med1"
-                bot.send_message(uid, "Nombre:")
-            else:
+                return
+            user_states[uid] = "ayuda"
+            bot.send_message(uid, "Descripción de la ayuda:")
+            return
+        elif estado == "menu_medicamentos":
+            if not es_pastor(uid):
                 bot.send_message(uid, "Solo Pastor")
-
-        elif "Casas de Paz" in ref:
+                return
+            user_states[uid] = "med1"
+            bot.send_message(uid, "Nombre del medicamento:")
+            return
+        elif estado == "menu_casas":
             user_states[uid] = "casa1"
             bot.send_message(uid, "Anfitrión:")
-
-        elif "Servicios" in ref:
+            return
+        elif estado == "menu_servicios":
             user_states[uid] = "serv1"
             bot.send_message(uid, "Predicador:")
-
-        elif "Agenda" in ref:
+            return
+        elif estado == "menu_agenda":
             user_states[uid] = "agenda"
             bot.send_message(uid, "Evento:")
+            return
 
     # ===== VER =====
-    elif txt == "📄 Ver":
-        ref = m.reply_to_message.text
+    if txt == "📄 Ver":
+        if estado == "menu_miembros":
+            data = cursor.execute("SELECT nombre,ministerio,estado FROM miembros").fetchall()
+            bot.send_message(uid, "\n".join([f"{d[0]} ({d[1]}) - {d[2]}" for d in data]) or "Vacío")
+            return
+        if estado == "menu_oracion":
+            data = cursor.execute("SELECT texto,user_id FROM oraciones").fetchall()
+            filtrado = [d for d in data if d[1] == uid or es_pastor(uid)]
+            bot.send_message(uid, "\n".join([d[0] for d in filtrado]) or "Vacío")
+            return
+        if estado == "menu_ayudas":
+            data = cursor.execute("SELECT descripcion FROM ayudas").fetchall()
+            bot.send_message(uid, "\n".join([d[0] for d in data]) or "Vacío")
+            return
+        if estado == "menu_medicamentos":
+            data = cursor.execute("SELECT nombre,stock FROM medicamentos").fetchall()
+            bot.send_message(uid, "\n".join([f"{d[0]} - {d[1]}" for d in data]) or "Vacío")
+            return
 
-        tablas = {
-            "Miembros": "miembros",
-            "Oración": "oraciones",
-            "Ayudas": "ayudas",
-            "Medicamentos": "medicamentos",
-            "Casas de Paz": "casas",
-            "Servicios": "servicios",
-            "Agenda": "agenda"
-        }
+    # ===== FLUJOS POR ESTADO =====
+    if estado == "miembro":
+        nombre, *ministerio = txt.split(" - ")
+        ministerio = ministerio[0] if ministerio else ""
+        estado_m = "activo" if es_pastor(uid) else "pendiente"
+        cursor.execute("INSERT INTO miembros (nombre,ministerio,estado) VALUES (?,?,?)",(nombre,ministerio,estado_m))
+        conn.commit()
+        bot.send_message(uid, "Miembro guardado")
+        user_states[uid] = None
+        menu(uid)
+        return
 
-        for k in tablas:
-            if k in ref:
-                data = cursor.execute(f"SELECT * FROM {tablas[k]}").fetchall()
-                bot.send_message(uid, "\n".join([str(d) for d in data]) or "Vacío")
+    if estado == "oracion":
+        cursor.execute("INSERT INTO oraciones (texto,user_id) VALUES (?,?)",(txt,uid))
+        conn.commit()
+        bot.send_message(uid, "Oración guardada")
+        user_states[uid] = None
+        menu(uid)
+        return
 
-    # ===== ESTADOS =====
-    elif estado == "miembro":
-        cursor.execute("INSERT INTO miembros (nombre, estado) VALUES (?,?)",(txt,"activo"))
+    if estado == "ayuda":
+        cursor.execute("INSERT INTO ayudas (descripcion,aprobado,asignado) VALUES (?,1,NULL)",(txt,))
+        conn.commit()
+        bot.send_message(uid, "Ayuda guardada")
+        user_states[uid] = None
+        menu(uid)
+        return
 
-    elif estado == "oracion":
-        cursor.execute("INSERT INTO oraciones (texto, user_id) VALUES (?,?)",(txt,uid))
-
-    elif estado == "ayuda":
-        cursor.execute("INSERT INTO ayudas (descripcion, aprobado) VALUES (?,1)",(txt,))
-
-    elif estado == "med1":
+    if estado == "med1":
         user_states[uid] = ("med2", txt)
         bot.send_message(uid, "Cantidad:")
         return
 
-    elif isinstance(estado, tuple) and estado[0] == "med2":
-        cursor.execute("INSERT INTO medicamentos (nombre, stock) VALUES (?,?)",(estado[1],int(txt)))
+    if isinstance(estado, tuple) and estado[0] == "med2":
+        nombre = estado[1]
+        try:
+            cantidad = int(txt)
+        except:
+            bot.send_message(uid, "Cantidad inválida")
+            return
+        cursor.execute("INSERT INTO medicamentos (nombre,stock) VALUES (?,?)",(nombre,cantidad))
+        conn.commit()
+        bot.send_message(uid, "Medicamento guardado")
+        user_states[uid] = None
+        menu(uid)
+        return
 
-    elif estado == "casa1":
+    if estado == "casa1":
         user_states[uid] = ("casa2", txt)
         bot.send_message(uid, "Dirección:")
         return
+    if isinstance(estado, tuple) and estado[0] == "casa2":
+        cursor.execute("INSERT INTO casas (anfitrion,direccion) VALUES (?,?)",(estado[1],txt))
+        conn.commit()
+        bot.send_message(uid, "Casa de Paz guardada")
+        user_states[uid] = None
+        menu(uid)
+        return
 
-    elif isinstance(estado, tuple) and estado[0] == "casa2":
-        cursor.execute("INSERT INTO casas (anfitrion, direccion) VALUES (?,?)",(estado[1],txt))
-
-    elif estado == "serv1":
+    if estado == "serv1":
         user_states[uid] = ("serv2", txt)
         bot.send_message(uid, "Mensaje:")
         return
-
-    elif isinstance(estado, tuple) and estado[0] == "serv2":
-        cursor.execute("INSERT INTO servicios (fecha, mensaje, predicador) VALUES (?,?,?)",
-                       (str(datetime.date.today()), txt, estado[1]))
-
-    elif estado == "agenda":
-        cursor.execute("INSERT INTO agenda (fecha, evento) VALUES (?,?)",
-                       (str(datetime.date.today()), txt))
-
-    # ===== FINALIZAR =====
-    if estado:
+    if isinstance(estado, tuple) and estado[0] == "serv2":
+        user_states[uid] = ("serv3", estado[1], txt)
+        bot.send_message(uid, "Coro:")
+        return
+    if isinstance(estado, tuple) and estado[0] == "serv3":
+        predicador, mensaje = estado[1], estado[2]
+        bot.send_message(uid, "Ofrendas (hasta 3 miembros, separados por coma):")
+        user_states[uid] = ("serv4", predicador, mensaje)
+        return
+    if isinstance(estado, tuple) and estado[0] == "serv4":
+        predicador, mensaje = estado[1], estado[2]
+        coro = txt
+        ofrendas = txt
+        cursor.execute("INSERT INTO servicios (fecha,predicador,mensaje,coro,ofrendas) VALUES (?,?,?,?,?)",
+                       (str(datetime.date.today()), predicador, mensaje, coro, ofrendas))
         conn.commit()
+        bot.send_message(uid, "Servicio guardado")
         user_states[uid] = None
-        bot.send_message(uid, "Guardado")
         menu(uid)
+        return
+
+    if estado == "agenda":
+        cursor.execute("INSERT INTO agenda (fecha,evento) VALUES (?,?)",(str(datetime.date.today()),txt))
+        conn.commit()
+        bot.send_message(uid, "Evento guardado")
+        user_states[uid] = None
+        menu(uid)
+        return
 
 # ===== RUN =====
 bot.infinity_polling()
