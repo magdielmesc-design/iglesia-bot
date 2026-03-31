@@ -3,8 +3,9 @@ from telebot.types import ReplyKeyboardMarkup
 import sqlite3
 import os
 from datetime import datetime
+import threading
+import time
 
-# ===== CONFIG =====
 TOKEN = os.getenv("TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
@@ -12,158 +13,286 @@ bot = telebot.TeleBot(TOKEN)
 conn = sqlite3.connect("iglesia.db", check_same_thread=False)
 cursor = conn.cursor()
 
-# ===== TABLAS =====
-cursor.execute("""
+cursor.executescript("""
 CREATE TABLE IF NOT EXISTS usuarios (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    chat_id TEXT UNIQUE,
-    rol TEXT
-)
-""")
+id INTEGER PRIMARY KEY,
+chat_id TEXT UNIQUE,
+nombre TEXT,
+rol TEXT,
+aprobado INTEGER
+);
 
-cursor.execute("""
 CREATE TABLE IF NOT EXISTS miembros (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    nombre TEXT
-)
-""")
+id INTEGER PRIMARY KEY,
+nombre TEXT UNIQUE
+);
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS oraciones (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    usuario TEXT,
-    motivo TEXT,
-    fecha TEXT
-)
-""")
+CREATE TABLE IF NOT EXISTS ayudas (
+id INTEGER PRIMARY KEY,
+tipo TEXT,
+cantidad INTEGER
+);
 
+CREATE TABLE IF NOT EXISTS ayudas_asignadas (
+id INTEGER PRIMARY KEY,
+miembro TEXT,
+tipo TEXT,
+cantidad INTEGER,
+fecha TEXT
+);
+
+CREATE TABLE IF NOT EXISTS estados (
+chat_id TEXT PRIMARY KEY,
+estado TEXT,
+data TEXT
+);
+
+CREATE TABLE IF NOT EXISTS agenda (
+id INTEGER PRIMARY KEY,
+titulo TEXT,
+fecha TEXT
+);
+
+CREATE TABLE IF NOT EXISTS recordatorios (
+id INTEGER PRIMARY KEY,
+chat_id TEXT,
+mensaje TEXT,
+fecha TEXT
+);
+""")
 conn.commit()
 
-# ===== FUNCIONES =====
-def obtener_rol(chat_id):
-    cursor.execute("SELECT rol FROM usuarios WHERE chat_id=?", (chat_id,))
-    data = cursor.fetchone()
-    return data[0] if data else None
+# ===== UTIL =====
+def user(chat):
+    cursor.execute("SELECT * FROM usuarios WHERE chat_id=?", (chat,))
+    return cursor.fetchone()
 
-def registrar_usuario(chat_id):
-    cursor.execute("SELECT COUNT(*) FROM usuarios")
-    total = cursor.fetchone()[0]
+def es_admin(chat):
+    u = user(chat)
+    return u and u[3] in ["Pastor", "Líder"]
 
-    if total == 0:
-        rol = "Pastor"
-    else:
-        rol = "Miembro"
-
-    cursor.execute("INSERT OR IGNORE INTO usuarios (chat_id, rol) VALUES (?, ?)", (chat_id, rol))
+def set_estado(chat, estado, data=""):
+    cursor.execute("REPLACE INTO estados VALUES (?,?,?)", (chat, estado, data))
     conn.commit()
 
-    return rol
+def get_estado(chat):
+    cursor.execute("SELECT estado,data FROM estados WHERE chat_id=?", (chat,))
+    r = cursor.fetchone()
+    return r if r else (None, None)
 
-# ===== MENÚ =====
-def menu_principal(rol):
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
+def clear_estado(chat):
+    cursor.execute("DELETE FROM estados WHERE chat_id=?", (chat,))
+    conn.commit()
 
+def menu(rol):
+    m = ReplyKeyboardMarkup(resize_keyboard=True)
+    m.add("👥 Miembros", "📦 Ayudas")
+    m.add("📊 Stock", "📤 Entregar")
+    m.add("📊 Reportes PRO", "📊 Reporte Avanzado")
+    m.add("📅 Agenda", "⬅️ Volver")
     if rol == "Pastor":
-        markup.add("👥 Miembros", "🙏 Oración", "🎁 Ayudas", "⚙️ Admin")
-    elif rol == "Líder":
-        markup.add("👥 Miembros", "🙏 Oración")
-    else:
-        markup.add("🙏 Oración")
+        m.add("⚙️ Control")
+    return m
 
-    return markup
+def notificar_admins(msg):
+    cursor.execute("SELECT chat_id FROM usuarios WHERE rol IN ('Pastor','Líder') AND aprobado=1")
+    for u in cursor.fetchall():
+        try:
+            bot.send_message(u[0], msg)
+        except:
+            pass
 
 # ===== START =====
 @bot.message_handler(commands=['start'])
 def start(msg):
-    chat_id = str(msg.chat.id)
+    chat = str(msg.chat.id)
+    nombre = msg.from_user.first_name
 
-    registrar_usuario(chat_id)
-    rol = obtener_rol(chat_id)
+    cursor.execute("SELECT COUNT(*) FROM usuarios")
+    rol = "Pastor" if cursor.fetchone()[0] == 0 else "Miembro"
 
-    bot.send_message(
-        msg.chat.id,
-        f"Sistema activo\nRol: {rol}",
-        reply_markup=menu_principal(rol)
-    )
-
-# ===== MIEMBROS =====
-@bot.message_handler(func=lambda m: m.text == "👥 Miembros")
-def miembros_menu(msg):
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("➕ Agregar", "📋 Ver", "⬅️ Volver")
-    bot.send_message(msg.chat.id, "Módulo Miembros", reply_markup=markup)
-
-@bot.message_handler(func=lambda m: m.text == "➕ Agregar")
-def agregar_miembro(msg):
-    msg2 = bot.send_message(msg.chat.id, "Nombre del miembro:")
-    bot.register_next_step_handler(msg2, guardar_miembro)
-
-def guardar_miembro(msg):
-    cursor.execute("INSERT INTO miembros (nombre) VALUES (?)", (msg.text,))
-    conn.commit()
-    bot.send_message(msg.chat.id, "Miembro guardado")
-
-@bot.message_handler(func=lambda m: m.text == "📋 Ver")
-def ver_miembros(msg):
-    cursor.execute("SELECT nombre FROM miembros")
-    datos = cursor.fetchall()
-
-    if not datos:
-        bot.send_message(msg.chat.id, "No hay miembros")
-        return
-
-    texto = "Miembros:\n"
-    for d in datos:
-        texto += f"- {d[0]}\n"
-
-    bot.send_message(msg.chat.id, texto)
-
-# ===== ORACIÓN =====
-@bot.message_handler(func=lambda m: m.text == "🙏 Oración")
-def oracion_menu(msg):
-    markup = ReplyKeyboardMarkup(resize_keyboard=True)
-    markup.add("📝 Agregar", "📖 Ver", "⬅️ Volver")
-    bot.send_message(msg.chat.id, "Módulo Oración", reply_markup=markup)
-
-@bot.message_handler(func=lambda m: m.text == "📝 Agregar")
-def agregar_oracion(msg):
-    msg2 = bot.send_message(msg.chat.id, "Escribe tu motivo:")
-    bot.register_next_step_handler(msg2, guardar_oracion)
-
-def guardar_oracion(msg):
-    usuario = str(msg.chat.id)
-    fecha = datetime.now().strftime("%Y-%m-%d %H:%M")
-
-    cursor.execute(
-        "INSERT INTO oraciones (usuario, motivo, fecha) VALUES (?, ?, ?)",
-        (usuario, msg.text, fecha)
-    )
+    cursor.execute("INSERT OR IGNORE INTO usuarios VALUES (NULL,?,?,?,0)",
+                   (chat, nombre, rol))
     conn.commit()
 
-    bot.send_message(msg.chat.id, "Motivo guardado")
+    u = user(chat)
 
-@bot.message_handler(func=lambda m: m.text == "📖 Ver")
-def ver_oraciones(msg):
-    cursor.execute("SELECT motivo, fecha FROM oraciones ORDER BY id DESC LIMIT 10")
-    datos = cursor.fetchall()
+    if u[3] == "Pastor":
+        cursor.execute("UPDATE usuarios SET aprobado=1 WHERE chat_id=?", (chat,))
+        conn.commit()
+        u = user(chat)
 
-    if not datos:
-        bot.send_message(msg.chat.id, "No hay motivos")
+    if u[4] == 0:
+        bot.send_message(msg.chat.id, "⏳ Pendiente aprobación")
         return
 
-    texto = "Últimos motivos:\n"
-    for d in datos:
-        texto += f"- {d[0]} ({d[1]})\n"
+    bot.send_message(msg.chat.id, "Sistema activo", reply_markup=menu(u[3]))
 
-    bot.send_message(msg.chat.id, texto)
+# ===== CONTROL =====
+@bot.message_handler(func=lambda m: m.text == "⚙️ Control")
+def control(msg):
+    if not es_admin(str(msg.chat.id)):
+        return
 
-# ===== VOLVER =====
-@bot.message_handler(func=lambda m: m.text == "⬅️ Volver")
-def volver(msg):
-    chat_id = str(msg.chat.id)
-    rol = obtener_rol(chat_id)
-    bot.send_message(msg.chat.id, "Menú principal", reply_markup=menu_principal(rol))
+    cursor.execute("SELECT id,nombre FROM usuarios WHERE aprobado=0")
+    data = cursor.fetchall()
+
+    txt = "\n".join([f"{x[0]}-{x[1]}" for x in data]) or "Vacío"
+    bot.send_message(msg.chat.id, txt + "\nID:")
+    set_estado(str(msg.chat.id), "aprobar")
+
+# ===== MOTOR =====
+def verificar_stock():
+    cursor.execute("SELECT tipo,SUM(cantidad) FROM ayudas GROUP BY tipo")
+    for t, c in cursor.fetchall():
+        if c <= 5:
+            notificar_admins(f"⚠️ Stock bajo: {t} ({c})")
+
+def revisar_agenda():
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    cursor.execute("SELECT titulo FROM agenda WHERE fecha=?", (hoy,))
+    for e in cursor.fetchall():
+        notificar_admins(f"📅 Hoy: {e[0]}")
+
+def ejecutar_recordatorios():
+    ahora = datetime.now().strftime("%Y-%m-%d %H:%M")
+    cursor.execute("SELECT id,chat_id,mensaje FROM recordatorios WHERE fecha=?", (ahora,))
+    for r in cursor.fetchall():
+        try:
+            bot.send_message(r[1], f"⏰ {r[2]}")
+        except:
+            pass
+        cursor.execute("DELETE FROM recordatorios WHERE id=?", (r[0],))
+        conn.commit()
+
+def motor():
+    while True:
+        try:
+            verificar_stock()
+            revisar_agenda()
+            ejecutar_recordatorios()
+        except:
+            pass
+        time.sleep(60)
+
+threading.Thread(target=motor, daemon=True).start()
+
+# ===== FLUJO =====
+@bot.message_handler(func=lambda msg: True)
+def flujo(msg):
+    chat = str(msg.chat.id)
+    estado, data = get_estado(chat)
+    t = msg.text
+
+    # aprobar
+    if estado == "aprobar":
+        cursor.execute("UPDATE usuarios SET aprobado=1 WHERE id=?", (t,))
+        conn.commit()
+        clear_estado(chat)
+        bot.send_message(msg.chat.id, "Aprobado")
+        return
+
+    # miembros
+    if t == "👥 Miembros":
+        bot.send_message(msg.chat.id, "Nombre:")
+        set_estado(chat, "m")
+        return
+
+    if estado == "m":
+        try:
+            cursor.execute("INSERT INTO miembros (nombre) VALUES (?)", (t,))
+            conn.commit()
+            bot.send_message(msg.chat.id, "OK")
+        except:
+            bot.send_message(msg.chat.id, "Existe")
+        clear_estado(chat)
+        return
+
+    # ayudas
+    if t == "📦 Ayudas":
+        if not es_admin(chat): return
+        bot.send_message(msg.chat.id, "Tipo:")
+        set_estado(chat, "tipo")
+        return
+
+    if estado == "tipo":
+        set_estado(chat, "cant", t)
+        bot.send_message(msg.chat.id, "Cantidad:")
+        return
+
+    if estado == "cant":
+        cursor.execute("INSERT INTO ayudas VALUES (NULL,?,?)", (data, int(t)))
+        conn.commit()
+        notificar_admins(f"📦 Stock: {data}+{t}")
+        clear_estado(chat)
+        bot.send_message(msg.chat.id, "OK")
+        return
+
+    # stock
+    if t == "📊 Stock":
+        cursor.execute("SELECT tipo,SUM(cantidad) FROM ayudas GROUP BY tipo")
+        txt = "\n".join([f"{x[0]}:{x[1]}" for x in cursor.fetchall()])
+        bot.send_message(msg.chat.id, txt or "Vacío")
+        return
+
+    # entregar
+    if t == "📤 Entregar":
+        if not es_admin(chat): return
+        cursor.execute("SELECT nombre FROM miembros")
+        lista = "\n".join([x[0] for x in cursor.fetchall()])
+        bot.send_message(msg.chat.id, lista)
+        set_estado(chat, "ent_m")
+        return
+
+    if estado == "ent_m":
+        set_estado(chat, "ent_t", t)
+        bot.send_message(msg.chat.id, "Tipo:")
+        return
+
+    if estado == "ent_t":
+        set_estado(chat, "ent_c", data + "|" + t)
+        bot.send_message(msg.chat.id, "Cantidad:")
+        return
+
+    if estado == "ent_c":
+        miembro, tipo = data.split("|")
+        cantidad = int(t)
+
+        cursor.execute("SELECT SUM(cantidad) FROM ayudas WHERE tipo=?", (tipo,))
+        stock = cursor.fetchone()[0] or 0
+
+        if cantidad > stock:
+            bot.send_message(msg.chat.id, "Stock insuficiente")
+            return
+
+        cursor.execute("INSERT INTO ayudas_asignadas VALUES (NULL,?,?,?,?)",
+                       (miembro, tipo, cantidad, datetime.now()))
+
+        cursor.execute("UPDATE ayudas SET cantidad = cantidad - ? WHERE tipo=?",
+                       (cantidad, tipo))
+
+        conn.commit()
+
+        notificar_admins(f"📤 {miembro} recibió {cantidad} de {tipo}")
+
+        clear_estado(chat)
+        bot.send_message(msg.chat.id, "Entrega OK")
+        return
+
+    # reporte pro
+    if t == "📊 Reportes PRO":
+        cursor.execute("SELECT SUM(cantidad) FROM ayudas_asignadas")
+        total = cursor.fetchone()[0] or 0
+        bot.send_message(msg.chat.id, f"Total entregado: {total}")
+        return
+
+    # volver
+    if t == "⬅️ Volver":
+        u = user(chat)
+        bot.send_message(msg.chat.id, "Menú", reply_markup=menu(u[3]))
+        clear_estado(chat)
+        return
 
 # ===== RUN =====
-print("Bot corriendo con roles...")
+print("SISTEMA FINAL ACTIVO")
 bot.infinity_polling()
