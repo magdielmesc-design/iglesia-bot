@@ -80,6 +80,13 @@ id INTEGER PRIMARY KEY,
 nombre TEXT,
 stock INTEGER
 );
+
+CREATE TABLE IF NOT EXISTS chat (
+id INTEGER PRIMARY KEY,
+usuario_id INTEGER,
+mensaje TEXT,
+fecha TEXT
+);
 """)
 conn.commit()
 
@@ -130,6 +137,7 @@ def menu_principal(rol):
     m.add("📦 Ayudas", "💊 Medicamentos")
     m.add("🏠 Casas", "⛪ Servicios")
     m.add("📅 Agenda", "📊 Reportes")
+    m.add("💬 Chat")
     if rol == "Pastor":
         m.add("⚙️ Control")
     return m
@@ -153,7 +161,6 @@ def start(msg):
     conn.commit()
 
     u = user(chat)
-
     if u[3] == "Pastor":
         cursor.execute("UPDATE usuarios SET aprobado=1 WHERE chat_id=?", (chat,))
         conn.commit()
@@ -165,23 +172,25 @@ def start(msg):
 
     bot.send_message(msg.chat.id, "Sistema listo", reply_markup=menu_principal(u[3]))
 
-# ===== MOTOR =====
+# ===== MOTOR DIARIO =====
 def motor():
     while True:
         try:
             hoy = datetime.now().strftime("%Y-%m-%d")
 
+            # Notificación agenda
             cursor.execute("SELECT titulo FROM agenda WHERE fecha=?", (hoy,))
             for e in cursor.fetchall():
                 notificar_admins(f"📅 Hoy: {e[0]}")
 
+            # Stock bajo
             cursor.execute("SELECT tipo,SUM(cantidad) FROM ayudas GROUP BY tipo")
             for t, c in cursor.fetchall():
                 if c <= 5:
                     notificar_admins(f"⚠️ Stock bajo: {t} ({c})")
         except:
             pass
-        time.sleep(60)
+        time.sleep(86400)  # 1 vez al día
 
 threading.Thread(target=motor, daemon=True).start()
 
@@ -266,7 +275,6 @@ def flujo(msg):
 
         cursor.execute("SELECT SUM(cantidad) FROM ayudas WHERE tipo=?", (tipo,))
         stock = cursor.fetchone()[0] or 0
-
         if c > stock:
             bot.send_message(msg.chat.id, "Stock insuficiente")
             return
@@ -320,5 +328,25 @@ def flujo(msg):
         bot.send_message(msg.chat.id, f"Total entregado: {total}")
         return
 
-print("BOT FINAL ACTIVO")
+    # ===== CHAT INTERNO =====
+    if t == "💬 Chat":
+        bot.send_message(msg.chat.id, "Escribe tu mensaje:")
+        set_estado(chat, "chat")
+        return
+
+    if estado == "chat":
+        cursor.execute("INSERT INTO chat VALUES (NULL,?,?,?)", (u[0], t, datetime.now()))
+        conn.commit()
+        bot.send_message(msg.chat.id, "Mensaje enviado")
+        # Notificar a todos los miembros activos
+        cursor.execute("SELECT chat_id FROM usuarios WHERE aprobado=1 AND chat_id!=?", (chat,))
+        for x in cursor.fetchall():
+            try:
+                bot.send_message(x[0], f"💬 {u[2]}: {t}")
+            except:
+                pass
+        clear_estado(chat)
+        return
+
+print("BOT ÉLITE+FINAL ACTIVO")
 bot.infinity_polling()
